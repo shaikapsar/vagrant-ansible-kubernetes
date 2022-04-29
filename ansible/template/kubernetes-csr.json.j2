@@ -1,0 +1,28 @@
+{
+  "key": {
+    "algo": "rsa",
+    "size": 4096
+  },
+  "names": [
+    {
+      "O": "Shaik Apsar Inc",
+      "OU": "Information technology - Operations",
+      "L": "Dubai",
+      "ST": "Dubai",
+      "C": "UAE"
+    }
+  ],
+  "CN": "kubernetes",
+  "hosts": [
+    "kubernetes",
+    "kubernetes.default",
+    "kubernetes.default.svc",
+    "kubernetes.default.svc.cluster",
+    "kubernetes.svc.cluster.local",
+    "10.32.0.1",
+  {% for host in kube_master_nodes %}
+  "{{hostvars[host].ansible_host}}",
+  {% endfor %}
+  "{{kubernetes_vip}}"
+  ]
+}

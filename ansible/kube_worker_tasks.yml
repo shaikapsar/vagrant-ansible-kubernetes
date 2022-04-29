@@ -1,0 +1,51 @@
+- name: Create Kubernetes configuration directory.
+  ansible.builtin.file:
+    path: "{{item}}"
+    state: directory
+    recurse: yes
+  with_items:
+    - /etc/kubernetes/config
+    - /var/lib/kubernetes/
+
+#- name: Download Kubernetes binaries
+#  get_url:
+#    url: https://storage.googleapis.com/kubernetes-release/release/v1.21.0/bin/linux/amd64/{{item}}
+#    dest: /usr/local/bin/{{item}}
+#    mode: "0755"
+#  with_items:
+#    - kube-apiserver
+#    - kube-controller-manager
+#    - kube-scheduler
+#    - kubectl
+
+#- name: Prepare the kube worker node csr
+#  ansible.builtin.template:
+#    src: /vagrant/ansible/template/kube-worker-csr.json.j2
+#    dest: /vagrant/.certificate/{{item}}-csr.json
+#  with_items: "{{ groups['kube_master'] }}"
+
+#- name: Generate ETCD Node Certificate if Certificate does not exist.
+#  ansible.builtin.shell:
+#    cmd: /usr/local/bin/cfssl gencert --ca ca.pem --ca-key ca-key.pem -config ca-config.json w-{{item}}-csr.json | cfssljson --bare w-{{item}}
+#    chdir: /vagrant/.certificate
+#    creates: "{{item}}-key.pem"
+#  with_items: "{{ groups['kube_master'] }}"
+
+- name: Copy Certificates and configuration for kubernetes.
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    backup: yes
+  loop:
+    - {
+        src: "/vagrant/.certificate/ca.pem",
+        dest: "/var/lib/kubernetes/ca.pem",
+      }
+    - {
+        src: "/vagrant/.certificate/{{inventory_hostname}}-key.pem",
+        dest: "/var/lib/kubernetes/{{inventory_hostname}}-key.pem",
+      }
+    - {
+        src: "/vagrant/.certificate/{{inventory_hostname}}.pem",
+        dest: "/var/lib/kubernetes/{{inventory_hostname}}.pem",
+      }

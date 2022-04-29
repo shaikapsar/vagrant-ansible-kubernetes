@@ -1,0 +1,184 @@
+- name: Download CFSSL with checksum url (sha256)
+  get_url:
+    url: https://github.com/cloudflare/cfssl/releases/download/v1.6.1/cfssl_1.6.1_linux_amd64
+    dest: /usr/local/bin/cfssl
+    checksum: sha256:https://github.com/cloudflare/cfssl/releases/download/v1.6.1/cfssl_1.6.1_checksums.txt
+    mode: "0755"
+
+- name: Download CFSSL JSON with checksum url (sha256)
+  get_url:
+    url: https://github.com/cloudflare/cfssl/releases/download/v1.6.1/cfssljson_1.6.1_linux_amd64
+    dest: /usr/local/bin/cfssljson
+    checksum: sha256:https://github.com/cloudflare/cfssl/releases/download/v1.6.1/cfssl_1.6.1_checksums.txt
+    mode: "0755"
+
+- name: Create certificate and configuration directories
+  ansible.builtin.file:
+    path: "{{item}}"
+    state: directory
+    recurse: yes
+  with_items:
+    - /vagrant/.certificate
+    - /vagrant/.configuration
+
+- name: Generate Certificate Authority (CA) - Certificate Signing Request (CSR) configuration.
+  ansible.builtin.template:
+    src: /vagrant/ansible/template/ca-csr.json
+    dest: /vagrant/.certificate/ca-csr.json
+
+- name: Generate Certificate Authority (CA) configuration.
+  ansible.builtin.template:
+    src: /vagrant/ansible/template/ca-config.json.j2
+    dest: /vagrant/.certificate/ca-config.json
+
+- name: Generate Certificate Authority (CA) - Certificate Signing Request (CSR).
+  ansible.builtin.shell:
+    cmd: /usr/local/bin/cfssl gencert --initca=true ca-csr.json | /usr/local/bin/cfssljson --bare ca
+    chdir: /vagrant/.certificate
+    creates: ca-key.pem
+
+- name: Generate ETCD Certificate Signing Request (CSR) configuration for each etcd instance.
+  ansible.builtin.template:
+    src: /vagrant/ansible/template/node-csr.json.j2
+    dest: /vagrant/.certificate/{{item}}-csr.json
+  with_items: "{{ groups['etcd'] }}"
+
+- name: Generate ETCD Certificate for each etcd instance.
+  ansible.builtin.shell:
+    cmd: /usr/local/bin/cfssl gencert --ca ca.pem --ca-key ca-key.pem -config ca-config.json {{item}}-csr.json | cfssljson --bare {{item}}
+    chdir: /vagrant/.certificate
+    creates: "{{item}}-key.pem"
+  with_items: "{{ groups['etcd'] }}"
+
+- name: Copy admin user Certificate Signing Request (CSR) configuration for client authentication.
+  ansible.builtin.copy:
+    src: /vagrant/ansible/template/admin-user-csr.json
+    dest: /vagrant/.certificate/admin-user-csr.json
+
+- name: Generate ETCD Node Certificate if Certificate does not exist.
+  ansible.builtin.shell:
+    cmd: /usr/local/bin/cfssl gencert --ca ca.pem --ca-key ca-key.pem -config ca-config.json {{item}}-csr.json | cfssljson --bare {{item}}
+    chdir: /vagrant/.certificate
+    creates: "{{item}}-key.pem"
+  with_items:
+    - admin-user
+
+- name: Generate Kubelet Certificate Signing Request (CSR) configuration for each worker instance.
+  ansible.builtin.template:
+    src: /vagrant/ansible/template/kubelet-csr.json.j2
+    dest: /vagrant/.certificate/{{item}}-kubelet-csr.json
+  with_items: "{{ groups['kube_master'] }}"
+
+- name: Generate Kubelet Certificate for each worker instance.
+  ansible.builtin.shell:
+    cmd: /usr/local/bin/cfssl gencert --ca ca.pem --ca-key ca-key.pem -config ca-config.json {{item}}-kubelet-csr.json | cfssljson --bare {{item}}-kubelet
+    chdir: /vagrant/.certificate
+    creates: "{{item}}-kubelet-key.pem"
+  with_items: "{{ groups['kube_master'] }}"
+
+- name: Prepare the Kubernetes TLS CSR
+  ansible.builtin.template:
+    src: /vagrant/ansible/template/{{item}}-csr.json.j2
+    dest: /vagrant/.certificate/{{item}}-csr.json
+  vars:
+    kube_master_nodes: "{{ groups['kube_master'] }}"
+  with_items:
+    - kube-controller-manager
+    - kube-proxy
+    - kube-scheduler
+    - kubernetes
+    - service-account
+
+- name: Generate Kubernetes Node Certificate if Certificate does not exist.
+  ansible.builtin.shell:
+    cmd: /usr/local/bin/cfssl gencert --ca ca.pem --ca-key ca-key.pem -config ca-config.json {{item}}-csr.json | cfssljson --bare {{item}}
+    chdir: /vagrant/.certificate
+    creates: "{{item}}-kubelet-key.pem"
+  with_items:
+    - kube-controller-manager
+    - kube-proxy
+    - kube-scheduler
+    - kubernetes
+    - service-account
+
+- name: Prepare the Kubernetes TLS CSR
+  ansible.builtin.template:
+    src: /vagrant/ansible/template/encryption-config.yaml.j2
+    dest: /vagrant/.configuration/encryption-config.yaml
+  vars:
+    ENCRYPTION_KEY: aPpVD8t4S8z7J3Y109pQcLaC/QxGdxxIPtRBQwwIgJw=
+
+- name: Generate kubelet Kubernetes Configuration File
+  ansible.builtin.shell: |
+    kubectl config set-cluster Kubernetes \
+    --certificate-authority=/vagrant/.certificate/ca.pem \
+    --embed-certs=true \
+    --server=https://{{kubernetes_vip}}:6443 \
+    --kubeconfig=/vagrant/.configuration/{{item}}.kubeconfig
+
+
+    kubectl config set-credentials system:node:{{item}} \
+    --client-certificate=/vagrant/.certificate/{{item}}.pem \
+    --client-key=/vagrant/.certificate/{{item}}-key.pem \
+    --embed-certs=true \
+    --kubeconfig=/vagrant/.configuration/{{item}}.kubeconfig
+
+    kubectl config set-context default \
+      --cluster=Kubernetes \
+      --user=system:node:{{item}}\
+      --kubeconfig=/vagrant/.configuration/{{item}}.kubeconfig
+
+    kubectl config use-context default --kubeconfig=/vagrant/.configuration/{{item}}.kubeconfig
+
+  with_items: "{{ groups['kube_worker'] }}"
+
+- name: Generate Kubernetes Master component Configuration File
+  ansible.builtin.shell: |
+    kubectl config set-cluster Kubernetes \
+    --certificate-authority=/vagrant/.certificate/ca.pem \
+    --embed-certs=true \
+    --server=https://{{kubernetes_vip}}:6443 \
+    --kubeconfig=/vagrant/.configuration/{{item}}.kubeconfig
+
+
+    kubectl config set-credentials system:{{item}} \
+    --client-certificate=/vagrant/.certificate/{{item}}.pem \
+    --client-key=/vagrant/.certificate/{{item}}-key.pem \
+    --embed-certs=true \
+    --kubeconfig=/vagrant/.configuration/{{item}}.kubeconfig
+
+    kubectl config set-context default \
+      --cluster=Kubernetes \
+      --user=system:{{item}}\
+      --kubeconfig=/vagrant/.configuration/{{item}}.kubeconfig
+
+    kubectl config use-context default --kubeconfig=/vagrant/.configuration/{{item}}.kubeconfig
+
+  with_items:
+    - kube-controller-manager
+    - kube-scheduler
+
+- name: Generate Kubernetes admin Configuration File
+  ansible.builtin.shell: |
+    kubectl config set-cluster Kubernetes \
+    --certificate-authority=/vagrant/.certificate/ca.pem \
+    --embed-certs=true \
+    --server=https://{{kubernetes_vip}}:6443 \
+    --kubeconfig=/vagrant/.configuration/{{item}}.kubeconfig
+
+
+    kubectl config set-credentials {{item}} \
+    --client-certificate=/vagrant/.certificate/{{item}}.pem \
+    --client-key=/vagrant/.certificate/{{item}}-key.pem \
+    --embed-certs=true \
+    --kubeconfig=/vagrant/.configuration/{{item}}.kubeconfig
+
+    kubectl config set-context default \
+      --cluster=Kubernetes \
+      --user={{item}}\
+      --kubeconfig=/vagrant/.configuration/{{item}}.kubeconfig
+
+    kubectl config use-context default --kubeconfig=/vagrant/.configuration/{{item}}.kubeconfig
+
+  with_items:
+    - admin

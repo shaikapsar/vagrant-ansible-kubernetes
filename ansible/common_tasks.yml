@@ -1,0 +1,6 @@
+- name: Upgrade the OS distribution
+  apt:
+    upgrade: dist
+    update_cache: yes
+    autoremove: yes
+    autoclean: yes

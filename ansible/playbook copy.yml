@@ -1,0 +1,96 @@
+---
+- name: Update Packages
+  hosts: all
+  #  sudo: true
+  tasks:
+    - name: Upgrade the OS distribution
+      apt:
+        upgrade: dist
+        update_cache: yes
+        autoremove: yes
+        autoclean: yes
+
+- name: Update Packages
+  hosts: deployer
+  #  sudo: true
+  tasks:
+    - name: Download CFSSL with checksum url (sha256)
+      get_url:
+        url: https://github.com/cloudflare/cfssl/releases/download/v1.6.1/cfssl_1.6.1_linux_amd64
+        dest: /usr/local/bin/cfssl
+        checksum: sha256:https://github.com/cloudflare/cfssl/releases/download/v1.6.1/cfssl_1.6.1_checksums.txt
+        mode: "0755"
+
+    - name: Download CFSSL JSON with checksum url (sha256)
+      get_url:
+        url: https://github.com/cloudflare/cfssl/releases/download/v1.6.1/cfssljson_1.6.1_linux_amd64
+        dest: /usr/local/bin/cfssljson
+        checksum: sha256:https://github.com/cloudflare/cfssl/releases/download/v1.6.1/cfssl_1.6.1_checksums.txt
+        mode: "0755"
+
+    - name: Download Kubectl v1.21.0
+      get_url:
+        url: https://storage.googleapis.com/kubernetes-release/release/v1.21.0/bin/linux/amd64/kubectl
+        dest: /usr/local/bin/kubectl
+        #checksum: sha256:https://github.com/cloudflare/cfssl/releases/download/v1.6.1/cfssl_1.6.1_checksums.txt
+        mode: "0755"
+
+    - name: Create Temporary Certificate directory.
+      ansible.builtin.file:
+        path: /tmp/certs
+        state: directory
+        recurse: yes
+
+    - name: Template a file for CA CSR
+      ansible.builtin.template:
+        src: /vagrant/ansible/template/ca-csr.json
+        dest: /tmp/certs/ca-csr.json
+
+    - name: Generate CA Certificate if Certificate does not exist (without 'args')
+      ansible.builtin.shell:
+        cmd: /usr/local/bin/cfssl gencert --initca=true ca-csr.json | /usr/local/bin/cfssljson --bare ca
+        chdir: /tmp/certs
+        creates: ca-key.pem
+
+        # cfssl gencert --initca=true /tmp/certs/ca-csr.json | cfssljson --bare /tmp/certs/ca
+
+- name: Etcd Cluster setup
+  hosts: etcd
+  pre_tasks:
+    - wait_for_connection: { timeout: 300 }
+    - setup:
+  tasks:
+    - debug: var=ansible_all_ipv4_addresses
+    - debug: var=ansible_default_ipv4.address
+    - debug: var=ansible_eth1.ipv4.address
+    - name: Install etcd
+      import_role:
+        name: igor_nikiforov.etcd
+      vars:
+        etcd_version: "3.4.13"
+        etcd_config:
+          name: "{{ ansible_facts.hostname }}"
+          data-dir: "/var/lib/etcd/data"
+          wal-dir: "/var/lib/etcd/wal"
+          initial-advertise-peer-urls: "https://{{ ansible_facts.fqdn }}:2380"
+          initial-cluster-token: "token"
+          initial-cluster-state: "new"
+          advertise-client-urls: "https://{{ ansible_facts.fqdn }}:2379"
+          listen-client-urls: "https://{{ ansible_eth1.ipv4.address }}:2379,https://127.0.0.1:2379"
+          listen-peer-urls: "https://{{ ansible_eth1.ipv4.address}}:2380"
+          client-transport-security:
+            trusted-ca-file: "{{ etcd_conf_dir }}/certs/ca.crt"
+            cert-file: "{{ etcd_conf_dir }}/certs/server.crt"
+            key-file: "{{ etcd_conf_dir }}/certs/server.key"
+          peer-transport-security:
+            trusted-ca-file: "{{ etcd_conf_dir }}/certs/ca.crt"
+            cert-file: "{{ etcd_conf_dir }}/certs/server.crt"
+            key-file: "{{ etcd_conf_dir }}/certs/server.key"
+          log-level: "debug"
+          logger: "zap"
+
+- name: Install HA Proxy
+  hosts: load_balancer
+  #  sudo: true
+  roles:
+    - geerlingguy.haproxy

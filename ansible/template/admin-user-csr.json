@@ -1,0 +1,16 @@
+{
+    "CN": "admin",
+    "key": {
+        "algo": "rsa",
+        "size": 2048
+    },
+    "names": [
+        {
+            "O": "Shaik Apsar Inc",
+            "OU": "system:masters",
+            "L": "Dubai",
+            "ST": "Dubai",
+            "C": "UAE"
+        }
+    ]
+}

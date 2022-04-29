@@ -1,0 +1,22 @@
+{
+  "key": {
+    "algo": "rsa",
+    "size": 4096
+  },
+  "names": [
+    {
+      "O": "Shaik Apsar Inc",
+      "OU": "Information technology - Operations",
+      "L": "Dubai",
+      "ST": "Dubai",
+      "C": "UAE"
+    }
+  ],
+  "CN": "{{ item }}",
+  "hosts": [
+    "127.0.0.1",
+    "localhost",
+    "{{ item }}",
+    "{{hostvars[item].ansible_host}}"
+  ]
+}

@@ -1,0 +1,62 @@
+---
+- name: Create etcd configuration directory.
+  ansible.builtin.file:
+    path: "{{item}}"
+    state: directory
+    recurse: yes
+  with_items:
+    - /etc/etcd/certs
+
+- name: Copy TLS certificates for Etcd.
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    backup: yes
+  loop:
+    - { src: "/vagrant/.certificate/ca.pem", dest: "/etc/etcd/certs/ca.pem" }
+    - {
+        src: "/vagrant/.certificate/{{inventory_hostname}}.pem",
+        dest: "/etc/etcd/certs/server.pem",
+      }
+    - {
+        src: "/vagrant/.certificate/{{inventory_hostname}}-key.pem",
+        dest: "/etc/etcd/certs/server-key.pem",
+      }
+
+#- name: clean etcd_conf_dir
+#  ansible.builtin.file:
+#    path: "{{item}}"
+#    state: absent
+#  with_items:
+#    - "/var/lib/etcd/data"
+#    - "/var/lib/etcd/wal"
+
+- name: Install etcd
+  import_role:
+    name: igor_nikiforov.etcd
+  vars:
+    etcd_version: "3.5.4"
+    etcd_config:
+      name: "{{ ansible_facts.hostname }}"
+      initial-advertise-peer-urls: "https://{{ ansible_eth1.ipv4.address }}:2380"
+      listen-peer-urls: "https://{{ ansible_eth1.ipv4.address}}:2380"
+      listen-client-urls: "https://{{ ansible_eth1.ipv4.address }}:2379,https://127.0.0.1:2379"
+      advertise-client-urls: "https://{{ ansible_facts.fqdn }}:2379"
+      data-dir: "/var/lib/etcd/data"
+      wal-dir: "/var/lib/etcd/wal"
+      initial-cluster-token: "token"
+      initial-cluster-state: "new"
+      client-transport-security:
+        trusted-ca-file: "{{ etcd_conf_dir }}/certs/ca.pem"
+        cert-file: "{{ etcd_conf_dir }}/certs/server.pem"
+        key-file: "{{ etcd_conf_dir }}/certs/server-key.pem"
+      peer-transport-security:
+        trusted-ca-file: "{{ etcd_conf_dir }}/certs/ca.pem"
+        cert-file: "{{ etcd_conf_dir }}/certs/server.pem"
+        key-file: "{{ etcd_conf_dir }}/certs/server-key.pem"
+      log-level: "debug"
+      logger: "zap"
+      enable-pprof: true
+      initial-cluster:
+        "{{etcd_initial_cluster}}"
+        #initial-advertise-peer-urls: "https://{{ ansible_facts.fqdn }}:2380"

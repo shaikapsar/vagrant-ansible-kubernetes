@@ -1,0 +1,41 @@
+---
+- name: Update Packages
+  hosts: all
+  tasks:
+    - include_tasks: common_tasks.yml
+
+- name: TLS Preparation on deployer.
+  hosts: deployer
+  tasks:
+    - name: Download Kubectl v1.21.0
+      get_url:
+        url: https://storage.googleapis.com/kubernetes-release/release/v1.21.0/bin/linux/amd64/kubectl
+        dest: /usr/local/bin/kubectl
+        mode: "0755"
+    - include_tasks: tls_tasks.yml
+
+- name: Etcd Cluster setup
+  hosts: etcd
+  pre_tasks:
+    - wait_for_connection: { timeout: 300 }
+    - setup:
+  tasks:
+    - include_tasks: etcd_tasks.yml
+
+- name: Kubernetes HA Master nodes setup
+  hosts: kube_master
+  pre_tasks:
+    - wait_for_connection: { timeout: 300 }
+    - setup:
+  tasks:
+    - include_tasks: kube_master_tasks.yml
+  tags: kube_master
+
+- name: Kubernetes Worker nodes setup
+  hosts: kube_worker
+  pre_tasks:
+    - wait_for_connection: { timeout: 300 }
+    - setup:
+  tasks:
+    - include_tasks: kube_worker_tasks.yml
+  tags: kube_worker

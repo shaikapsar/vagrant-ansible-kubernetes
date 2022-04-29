@@ -1,0 +1,50 @@
+- name: Create Kubernetes configuration directory.
+  ansible.builtin.file:
+    path: "{{item}}"
+    state: directory
+    recurse: yes
+  with_items:
+    - /etc/kubernetes/config
+    - /var/lib/kubernetes/
+
+- name: Download Kubernetes binaries
+  get_url:
+    url: https://storage.googleapis.com/kubernetes-release/release/v1.21.0/bin/linux/amd64/{{item}}
+    dest: /usr/local/bin/{{item}}
+    mode: "0755"
+  with_items:
+    - kube-apiserver
+    - kube-controller-manager
+    - kube-scheduler
+    - kubectl
+
+- name: Copy Certificates and configuration for kubernetes.
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    backup: yes
+  loop:
+    - {
+        src: "/vagrant/.certificate/ca.pem",
+        dest: "/var/lib/kubernetes/ca.pem",
+      }
+    - {
+        src: "/vagrant/.certificate/kubernetes-key.pem",
+        dest: "/var/lib/kubernetes/kubernetes-key.pem",
+      }
+    - {
+        src: "/vagrant/.certificate/kubernetes.pem",
+        dest: "/var/lib/kubernetes/kubernetes.pem",
+      }
+    - {
+        src: "/vagrant/.certificate/service-account-key.pem",
+        dest: "/var/lib/kubernetes/service-account-key.pem",
+      }
+    - {
+        src: "/vagrant/.certificate/service-account.pem",
+        dest: "/var/lib/kubernetes/service-account.pem",
+      }
+    - {
+        src: "/vagrant/.configuration/encryption-config.yaml",
+        dest: "/var/lib/kubernetes/encryption-config.yaml",
+      }
